@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local environment files
+.env
+backend/.env
+
+# Local database and uploads
+backend/data/app.db
+backend/storage/uploads/
+
+# Streamlit cache
+.streamlit/
