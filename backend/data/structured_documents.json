@@ -1,0 +1,32 @@
+[
+  {
+    "id": "DOC-S001",
+    "title": "AB PM-JAY Official Scheme Facts (Structured)",
+    "category": "Structured Data",
+    "document_type": "Official Structured Reference",
+    "department": "Insurance Desk",
+    "insurance_scheme": "Ayushman Bharat",
+    "language": "en-IN",
+    "version": "official-2024",
+    "effective_date": "2026-04-15",
+    "last_updated": "2026-04-15",
+    "summary": "Structured official PM-JAY facts curated from NHA guideline references for grounded retrieval.",
+    "data_file": "official_pmjay_facts.json",
+    "access_roles": "admin,staff,auditor,user"
+  },
+  {
+    "id": "DOC-S002",
+    "title": "AB PM-JAY Official Empanelment Points (Structured)",
+    "category": "Structured Data",
+    "document_type": "Official Structured Reference",
+    "department": "Insurance Desk",
+    "insurance_scheme": "Ayushman Bharat",
+    "language": "en-IN",
+    "version": "hospital-empanelment-july-2024",
+    "effective_date": "2026-04-15",
+    "last_updated": "2026-04-15",
+    "summary": "Structured official PM-JAY empanelment points from NHA public guideline.",
+    "data_file": "official_pmjay_empanelment_points.csv",
+    "access_roles": "admin,staff,auditor,user"
+  }
+]

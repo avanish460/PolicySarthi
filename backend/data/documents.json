@@ -166,5 +166,33 @@
     "last_updated": "2026-04-15",
     "summary": "Dummy hospital diagnostic policy covering sample collection windows, routine turnaround times, urgent processing, and escalation rules.",
     "content": "## Purpose\nTo define turnaround targets for routine, urgent, and critical diagnostic services in the hospital.\n\n## Routine Targets\n- Basic biochemistry within 4 hours\n- CBC within 2 hours\n- Routine X-ray within 3 hours\n\n## Urgent Processing Rules\n- Mark emergency samples at the time of collection.\n- Escalate critical-value tests directly to the duty doctor.\n- Record delay reasons in the laboratory incident log.\n\n## Source Guidance\nThis dummy policy helps answer general hospital questions about diagnostics and service timelines."
+  },
+  {
+    "id": "DOC-013",
+    "title": "ICU Escalation and Critical Care Handover SOP",
+    "category": "Critical Care",
+    "document_type": "ICU SOP",
+    "department": "ICU and Emergency",
+    "insurance_scheme": "General and Ayushman",
+    "language": "en-IN",
+    "version": "ICU-HND-402",
+    "effective_date": "2026-02-20",
+    "last_updated": "2026-04-15",
+    "summary": "Dummy ICU policy for escalation triggers, mandatory clinical handover fields, shift ownership, and audit traceability.",
+    "content": "## Purpose\nTo standardize escalation and handover practices for critically ill patients in ICU and step-down units.\n\n## Escalation Triggers\n- Persistent hypotension despite first-line treatment\n- New respiratory distress requiring ventilator support\n- Sudden fall in Glasgow Coma Scale score\n- Critical lab alerts requiring consultant review\n\n## Handover Checklist\n- Active diagnosis and treatment plan\n- Current hemodynamic and respiratory status\n- Pending investigations and expected review time\n- High-risk medications and infusion details\n- Family communication note and consent status\n\n## Governance\n- Duty intensivist validates every shift handover.\n- Delay above 15 minutes must be recorded in the ICU variance log.\n\n## Source Guidance\nThis dummy SOP supports queries on ICU handover quality, escalation conditions, and critical-care documentation."
+  },
+  {
+    "id": "DOC-014",
+    "title": "Biomedical Waste Segregation and Infection Control Policy",
+    "category": "Compliance",
+    "document_type": "Infection Control Policy",
+    "department": "Infection Control",
+    "insurance_scheme": "General",
+    "language": "en-IN",
+    "version": "INF-CTL-514",
+    "effective_date": "2026-01-25",
+    "last_updated": "2026-04-15",
+    "summary": "Dummy infection-control policy on biomedical waste segregation, color-coded bins, PPE compliance, and breach escalation.",
+    "content": "## Purpose\nTo enforce safe biomedical waste segregation and reduce healthcare-associated infections across all care areas.\n\n## Segregation Rules\n- Yellow bin: pathological and infectious waste.\n- Red bin: contaminated recyclable items after disinfection protocol.\n- White puncture-proof container: sharps and needles.\n- Blue container: glassware and metallic implants.\n\n## PPE and Handling Controls\n- Gloves and mask are mandatory during waste handling.\n- Hand hygiene must be completed before and after waste transfer.\n- Spill response kit must be available in every high-risk zone.\n\n## Escalation\n- Non-compliance events must be reported within the same shift.\n- Repeat breach triggers infection-control committee review.\n\n## Source Guidance\nThis dummy policy is used for compliance and infection-control questions, including audit preparedness."
   }
 ]

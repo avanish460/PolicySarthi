@@ -1,0 +1,30 @@
+[
+  {
+    "id": "DOC-A001",
+    "title": "AB PM-JAY Official Overview (NHA)",
+    "category": "Government Scheme",
+    "document_type": "Official Reference",
+    "department": "Insurance Desk",
+    "insurance_scheme": "Ayushman Bharat PM-JAY",
+    "language": "en-IN",
+    "version": "official-2024",
+    "effective_date": "2024-07-12",
+    "last_updated": "2026-04-15",
+    "summary": "Official PM-JAY reference summary compiled from National Health Authority publications and PM-JAY official portal pages.",
+    "content": "## Source\n- National Health Authority (NHA), Hospital Empanelment Guidelines (July 2024): https://nha.gov.in/img/resources/12-July-24_Hospital-Empanelment-Guidelines-July-22.pdf\n\n## Official Scheme Facts\n- Ayushman Bharat PM-JAY was launched in September 2018.\n- PM-JAY targets the bottom 40 percent of the population based on SECC 2011 deprivation and occupational criteria.\n- The scheme provides health coverage up to INR 5,00,000 per eligible family per year for secondary and tertiary care.\n- Service delivery is through a network of public and empaneled private hospitals.\n\n## Source Guidance\nUse this document only for high-level official PM-JAY scheme facts. For implementation details, refer to cited official guidelines."
+  },
+  {
+    "id": "DOC-A002",
+    "title": "AB PM-JAY Hospital Empanelment Highlights (Official)",
+    "category": "Government Guideline",
+    "document_type": "Official Guideline Snapshot",
+    "department": "Insurance Desk",
+    "insurance_scheme": "Ayushman Bharat PM-JAY",
+    "language": "en-IN",
+    "version": "hospital-empanelment-july-2024",
+    "effective_date": "2024-07-12",
+    "last_updated": "2026-04-15",
+    "summary": "Official reference highlights for PM-JAY hospital empanelment from NHA guidelines.",
+    "content": "## Source\n- NHA Hospital Empanelment Guidelines (July 2024): https://nha.gov.in/img/resources/12-July-24_Hospital-Empanelment-Guidelines-July-22.pdf\n\n## Empanelment Reference Points\n- The guideline describes empanelment principles for public and private hospitals under PM-JAY.\n- It details institutional roles, including committees and verification responsibilities.\n- It emphasizes quality access, compliance checks, and service-network governance.\n- It outlines administrative processes used by implementing agencies for empanelment lifecycle management.\n\n## Source Guidance\nUse this document for official empanelment context and governance-level understanding, not for local hospital-specific SOP decisions unless validated against current state implementation notifications."
+  }
+]

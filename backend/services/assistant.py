@@ -1,5 +1,7 @@
 import base64
+import csv
 import difflib
+import json
 import re
 import sqlite3
 from pathlib import Path
@@ -45,6 +47,7 @@ class HospitalAssistantService:
         self.default_access_roles = "admin,staff,auditor,user"
         self._reindex_existing_uploads()
         self._backfill_document_access()
+        self._backfill_structured_records()
 
     def _connect(self):
         connection = sqlite3.connect(self.db_path)
@@ -181,6 +184,7 @@ class HospitalAssistantService:
                     "INSERT INTO chunks (document_id, chunk_index, content) VALUES (?, ?, ?)",
                     (document_id, index, chunk),
                 )
+            structured_rows_indexed = self._index_structured_rows(connection, document_id, target_path)
             connection.commit()
 
         return {
@@ -189,22 +193,30 @@ class HospitalAssistantService:
             "metadata": metadata,
             "accessRoles": access_roles.split(","),
             "extractedPreview": extracted_text[:320],
+            "structuredRowsIndexed": structured_rows_indexed,
         }
 
     def answer_query(self, user: dict, query: str, preferred_language: str, include_voice: bool):
         detected_language = self._detect_language(query, preferred_language)
-        ranked = self._retrieve(query, top_k=3, user=user)
-        if "compare" in query.lower():
-            ranked = self._select_comparison_documents(query, ranked)[:2]
-        answer = self._generate_answer(user, query, ranked, detected_language)
+        target_language_code = self._language_code_for_output(detected_language)
+        retrieval_query = query
+        if detected_language != "English":
+            translated_query = self.sarvam.translate(query, target_language_code, "en-IN")
+            if translated_query:
+                retrieval_query = translated_query
+
+        ranked = self._retrieve(retrieval_query, top_k=3, user=user)
+        if "compare" in retrieval_query.lower():
+            ranked = self._select_comparison_documents(retrieval_query, ranked)[:2]
+        answer = self._generate_answer(user, retrieval_query, ranked, detected_language)
         if answer.get("no_info"):
             ranked = []
         else:
-            ranked = self._filter_grounded_sources(query, ranked)
+            ranked = self._filter_grounded_sources(retrieval_query, ranked)
         top = ranked[0] if ranked else None
         missing_warnings = answer.get("warnings", [])
-        voice = self.speak_text(answer["summary"], "hi-IN" if detected_language == "Hindi" else "en-IN") if include_voice else None
-        confidence = self._build_confidence_signal(query, ranked, answer.get("no_info", False))
+        voice = self.speak_text(answer["summary"], target_language_code) if include_voice else None
+        confidence = self._build_confidence_signal(retrieval_query, ranked, answer.get("no_info", False))
 
         with self._connect() as connection:
             cursor = connection.execute(
@@ -362,6 +374,12 @@ class HospitalAssistantService:
         with self._connect() as connection:
             documents = [dict(row) for row in connection.execute("SELECT * FROM documents").fetchall()]
             chunks = [dict(row) for row in connection.execute("SELECT document_id, chunk_index, content FROM chunks").fetchall()]
+            structured_rows = [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT document_id, row_index, content_json, search_text FROM structured_records"
+                ).fetchall()
+            ]
             feedback_bias = {
                 row["top_document_id"]: row["bias"]
                 for row in connection.execute(
@@ -377,6 +395,9 @@ class HospitalAssistantService:
         chunk_map = {}
         for chunk in chunks:
             chunk_map.setdefault(chunk["document_id"], []).append(chunk)
+        structured_map = {}
+        for row in structured_rows:
+            structured_map.setdefault(row["document_id"], []).append(row)
 
         scored = []
         for document in documents:
@@ -405,6 +426,20 @@ class HospitalAssistantService:
                     chunk_score += 8
                 if chunk_score:
                     matched_chunks.append({"chunkIndex": chunk["chunk_index"], "content": chunk["content"], "score": chunk_score})
+            for row in structured_map.get(document["id"], []):
+                row_haystack = (row.get("search_text") or "").lower()
+                row_score = sum(1 for token in tokens if token in row_haystack)
+                if normalized_query and normalized_query in " ".join(row_haystack.split()):
+                    row_score += 8
+                if row_score:
+                    content_preview = (row.get("search_text") or "")[:320]
+                    matched_chunks.append(
+                        {
+                            "chunkIndex": 100000 + int(row["row_index"]),
+                            "content": f"Structured row {int(row['row_index']) + 1}: {content_preview}",
+                            "score": row_score,
+                        }
+                    )
             matched_chunks.sort(key=lambda item: item["score"], reverse=True)
             scored.append(
                 {
@@ -434,8 +469,10 @@ class HospitalAssistantService:
 
         full_docs = self._get_documents_by_ids([item["id"] for item in ranked])
         sections = self._retrieve_sections(query, full_docs, top_k=6)
-        if not sections:
+        structured_sections = self._build_structured_evidence_sections(ranked)
+        if not sections and not structured_sections:
             return self._no_info_response(detected_language)
+        sections = sections + structured_sections
 
         preferences = self._section_preferences(query)
         checklist = self._collect_section_bullets(
@@ -483,11 +520,122 @@ class HospitalAssistantService:
         live_answer = self.sarvam.chat(system_prompt, user_prompt)
         summary = live_answer or self._fallback_rag_summary(query, sections, ranked, checklist, steps)
 
-        if detected_language == "Hindi":
-            translated = self.sarvam.translate(summary, "en-IN", "hi-IN")
-            summary = translated or self._fallback_hindi_summary(sections, checklist, steps)
+        if detected_language != "English":
+            translated_summary = self._translate_output_text(summary, detected_language)
+            if translated_summary:
+                summary = translated_summary
+            elif detected_language == "Hindi":
+                summary = self._fallback_hindi_summary(sections, checklist, steps)
 
         return {"summary": summary, "steps": steps, "checklist": checklist, "warnings": warnings, "no_info": False}
+
+    def _index_structured_rows(self, connection, document_id: str, target_path: Path):
+        rows = self._load_structured_rows(target_path)
+        connection.execute("DELETE FROM structured_records WHERE document_id = ?", (document_id,))
+        for row_index, row in enumerate(rows):
+            search_text = " | ".join(f"{key}: {value}" for key, value in row.items())
+            connection.execute(
+                """
+                INSERT INTO structured_records (document_id, row_index, content_json, search_text)
+                VALUES (?, ?, ?, ?)
+                """,
+                (document_id, row_index, json.dumps(row, ensure_ascii=False), search_text),
+            )
+        return len(rows)
+
+    def _load_structured_rows(self, target_path: Path):
+        suffix = target_path.suffix.lower()
+        if suffix == ".csv":
+            try:
+                with target_path.open("r", encoding="utf-8", errors="ignore", newline="") as handle:
+                    reader = csv.DictReader(handle)
+                    rows = []
+                    for record in reader:
+                        flattened = self._flatten_record(record)
+                        if flattened:
+                            rows.append(flattened)
+                        if len(rows) >= 1000:
+                            break
+                    return rows
+            except Exception:
+                return []
+
+        if suffix == ".json":
+            try:
+                payload = json.loads(target_path.read_text(encoding="utf-8", errors="ignore"))
+            except Exception:
+                return []
+
+            if isinstance(payload, list):
+                candidates = payload
+            elif isinstance(payload, dict):
+                list_value = next((value for value in payload.values() if isinstance(value, list)), None)
+                candidates = list_value if isinstance(list_value, list) else [payload]
+            else:
+                candidates = []
+
+            rows = []
+            for item in candidates:
+                if not isinstance(item, dict):
+                    continue
+                flattened = self._flatten_record(item)
+                if flattened:
+                    rows.append(flattened)
+                if len(rows) >= 1000:
+                    break
+            return rows
+
+        return []
+
+    def _flatten_record(self, record: dict, prefix: str = ""):
+        flattened = {}
+        for key, value in (record or {}).items():
+            clean_key = str(key).strip()
+            if not clean_key:
+                continue
+            composite_key = f"{prefix}.{clean_key}" if prefix else clean_key
+            if isinstance(value, dict):
+                nested = self._flatten_record(value, composite_key)
+                flattened.update(nested)
+            elif isinstance(value, list):
+                scalar_items = [str(item).strip() for item in value if not isinstance(item, (dict, list))]
+                nested_items = [item for item in value if isinstance(item, dict)]
+                if scalar_items:
+                    flattened[composite_key] = ", ".join(item for item in scalar_items if item)
+                for index, item in enumerate(nested_items):
+                    nested = self._flatten_record(item, f"{composite_key}[{index}]")
+                    flattened.update(nested)
+            else:
+                text_value = str(value).strip()
+                if text_value:
+                    flattened[composite_key] = text_value
+        return flattened
+
+    def _build_structured_evidence_sections(self, ranked: list[dict]):
+        sections = []
+        seen = set()
+        for source in ranked:
+            for chunk in source.get("sourceChunks", []):
+                content = (chunk.get("content") or "").strip()
+                if not content.lower().startswith("structured row"):
+                    continue
+                key = (source["id"], content)
+                if key in seen:
+                    continue
+                sections.append(
+                    {
+                        "documentId": source["id"],
+                        "documentTitle": source["title"],
+                        "title": "Structured Data Evidence",
+                        "text": content,
+                        "bullets": [],
+                        "score": chunk.get("score", 0),
+                    }
+                )
+                seen.add(key)
+                if len(sections) >= 4:
+                    return sections
+        return sections
 
     def _get_documents_by_ids(self, document_ids: list[str]):
         if not document_ids:
@@ -808,6 +956,30 @@ class HospitalAssistantService:
                     )
             connection.commit()
 
+    def _backfill_structured_records(self):
+        with self._connect() as connection:
+            rows = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT id, file_path
+                    FROM documents
+                    """
+                ).fetchall()
+            ]
+            for row in rows:
+                structured_count = connection.execute(
+                    "SELECT COUNT(*) FROM structured_records WHERE document_id = ?",
+                    (row["id"],),
+                ).fetchone()[0]
+                if structured_count > 0:
+                    continue
+                file_path = Path(row.get("file_path") or "")
+                if not file_path.exists():
+                    continue
+                self._index_structured_rows(connection, row["id"], file_path)
+            connection.commit()
+
     def _is_placeholder_content(self, content: str):
         normalized = " ".join((content or "").split())
         return self.placeholder_phrase in normalized
@@ -837,12 +1009,132 @@ class HospitalAssistantService:
         return user.get("role") in access_roles
 
     def _detect_language(self, query: str, preferred_language: str):
-        if preferred_language and preferred_language != "auto":
-            return preferred_language.title()
+        if preferred_language and preferred_language.lower() != "auto":
+            normalized = preferred_language.strip().lower()
+            return self._language_label_from_hint(normalized)
+
         lowered = query.lower()
-        if any(token in lowered for token in ["kaunse", "chahiye", "samjhao", "ke liye", "kya", "in hindi", "hindi"]):
+        hint_patterns = [
+            ("Hindi", ["hindi", "in hindi", "हिंदी"]),
+            ("Tamil", ["tamil", "in tamil", "தமிழ்"]),
+            ("Telugu", ["telugu", "in telugu", "తెలుగు"]),
+            ("Kannada", ["kannada", "in kannada", "ಕನ್ನಡ"]),
+            ("Malayalam", ["malayalam", "in malayalam", "മലയാളം"]),
+            ("Marathi", ["marathi", "in marathi", "मराठी"]),
+            ("Gujarati", ["gujarati", "in gujarati", "ગુજરાતી"]),
+            ("Bengali", ["bengali", "bangla", "in bengali", "বাংলা"]),
+            ("Punjabi", ["punjabi", "in punjabi", "ਪੰਜਾਬੀ"]),
+            ("Odia", ["odia", "oriya", "in odia", "ଓଡ଼ିଆ"]),
+        ]
+        for language, hints in hint_patterns:
+            if any(hint in lowered for hint in hints):
+                return language
+
+        marathi_tokens = [
+            "आहे",
+            "आहेत",
+            "काय",
+            "माहिती",
+            "धोरण",
+            "योजना",
+            "साठी",
+            "रुग्णालय",
+            "मार्गदर्शक",
+            "दस्तऐवज",
+            "मराठी",
+        ]
+        if any(token in query for token in marathi_tokens):
+            return "Marathi"
+
+        script_ranges = [
+            ("Hindi", r"[\u0900-\u097F]"),      # Devanagari
+            ("Bengali", r"[\u0980-\u09FF]"),    # Bengali
+            ("Punjabi", r"[\u0A00-\u0A7F]"),    # Gurmukhi
+            ("Gujarati", r"[\u0A80-\u0AFF]"),   # Gujarati
+            ("Odia", r"[\u0B00-\u0B7F]"),       # Odia
+            ("Tamil", r"[\u0B80-\u0BFF]"),      # Tamil
+            ("Telugu", r"[\u0C00-\u0C7F]"),     # Telugu
+            ("Kannada", r"[\u0C80-\u0CFF]"),    # Kannada
+            ("Malayalam", r"[\u0D00-\u0D7F]"),  # Malayalam
+        ]
+        for language, pattern in script_ranges:
+            if re.search(pattern, query):
+                return language
+
+        if any(token in lowered for token in ["kaunse", "chahiye", "samjhao", "ke liye", "kya"]):
             return "Hindi"
         return "English"
+
+    def _language_label_from_hint(self, hint: str):
+        mapping = {
+            "en": "English",
+            "en-in": "English",
+            "english": "English",
+            "hi": "Hindi",
+            "hi-in": "Hindi",
+            "hindi": "Hindi",
+            "ta": "Tamil",
+            "ta-in": "Tamil",
+            "tamil": "Tamil",
+            "te": "Telugu",
+            "te-in": "Telugu",
+            "telugu": "Telugu",
+            "kn": "Kannada",
+            "kn-in": "Kannada",
+            "kannada": "Kannada",
+            "ml": "Malayalam",
+            "ml-in": "Malayalam",
+            "malayalam": "Malayalam",
+            "mr": "Marathi",
+            "mr-in": "Marathi",
+            "marathi": "Marathi",
+            "gu": "Gujarati",
+            "gu-in": "Gujarati",
+            "gujarati": "Gujarati",
+            "bn": "Bengali",
+            "bn-in": "Bengali",
+            "bengali": "Bengali",
+            "pa": "Punjabi",
+            "pa-in": "Punjabi",
+            "punjabi": "Punjabi",
+            "or": "Odia",
+            "or-in": "Odia",
+            "odia": "Odia",
+            "oriya": "Odia",
+        }
+        return mapping.get(hint, "English")
+
+    def _language_code_for_output(self, detected_language: str):
+        mapping = {
+            "English": "en-IN",
+            "Hindi": "hi-IN",
+            "Tamil": "ta-IN",
+            "Telugu": "te-IN",
+            "Kannada": "kn-IN",
+            "Malayalam": "ml-IN",
+            "Marathi": "mr-IN",
+            "Gujarati": "gu-IN",
+            "Bengali": "bn-IN",
+            "Punjabi": "pa-IN",
+            "Odia": "or-IN",
+        }
+        return mapping.get(detected_language, "en-IN")
+
+    def _translate_output_text(self, text: str, target_language_label: str):
+        if not text or target_language_label == "English":
+            return text
+
+        target_language_code = self._language_code_for_output(target_language_label)
+        translated = self.sarvam.translate(text, "en-IN", target_language_code)
+        if translated:
+            return translated
+
+        # Fallback path when direct translate is unavailable: ask chat model for strict translation.
+        fallback = self.sarvam.chat(
+            "You are a professional translator. Return only translated text without extra commentary.",
+            f"Translate the following text to {target_language_label}:\n\n{text}",
+        )
+        return fallback or text
 
     def _has_strong_retrieval_match(self, query: str, ranked: list[dict]):
         if not ranked:
@@ -956,6 +1248,8 @@ class HospitalAssistantService:
         summary = "Sorry, I don't have this information in the uploaded hospital documents."
         if detected_language == "Hindi":
             summary = "Sorry, mujhe yeh jankari uploaded hospital documents mein nahi mili."
+        elif detected_language != "English":
+            summary = self._translate_output_text(summary, detected_language)
         return {
             "summary": summary,
             "steps": [],

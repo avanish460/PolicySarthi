@@ -1,0 +1,32 @@
+[
+  {
+    "fact_key": "scheme_name",
+    "fact_value": "Ayushman Bharat Pradhan Mantri Jan Arogya Yojana (PM-JAY)",
+    "source_title": "NHA Hospital Empanelment Guidelines (July 2024)",
+    "source_url": "https://nha.gov.in/img/resources/12-July-24_Hospital-Empanelment-Guidelines-July-22.pdf"
+  },
+  {
+    "fact_key": "launch_timeline",
+    "fact_value": "Launched in September 2018",
+    "source_title": "NHA Hospital Empanelment Guidelines (July 2024)",
+    "source_url": "https://nha.gov.in/img/resources/12-July-24_Hospital-Empanelment-Guidelines-July-22.pdf"
+  },
+  {
+    "fact_key": "target_population",
+    "fact_value": "Bottom 40 percent of the population based on SECC 2011 criteria",
+    "source_title": "NHA Hospital Empanelment Guidelines (July 2024)",
+    "source_url": "https://nha.gov.in/img/resources/12-July-24_Hospital-Empanelment-Guidelines-July-22.pdf"
+  },
+  {
+    "fact_key": "coverage_amount",
+    "fact_value": "Up to INR 5,00,000 per eligible family per year",
+    "source_title": "NHA Hospital Empanelment Guidelines (July 2024)",
+    "source_url": "https://nha.gov.in/img/resources/12-July-24_Hospital-Empanelment-Guidelines-July-22.pdf"
+  },
+  {
+    "fact_key": "care_scope",
+    "fact_value": "Secondary and tertiary care through public and empaneled private hospitals",
+    "source_title": "NHA Hospital Empanelment Guidelines (July 2024)",
+    "source_url": "https://nha.gov.in/img/resources/12-July-24_Hospital-Empanelment-Guidelines-July-22.pdf"
+  }
+]

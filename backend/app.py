@@ -42,6 +42,44 @@ state = initialize_database(BASE_DIR)
 seed_auth_state(state["users"])
 assistant = HospitalAssistantService(state, settings)
 
+ALLOWED_QUERY_LANGUAGES = {"auto", "english", "hindi", "en", "hi", "en-in", "hi-in"}
+
+
+def _json_error(message: str, status: int = 400):
+    return jsonify({"error": message}), status
+
+
+def _parse_json_payload():
+    payload = request.get_json(silent=True)
+    if payload is None:
+        return None, _json_error("Request body must be valid JSON.")
+    if not isinstance(payload, dict):
+        return None, _json_error("JSON payload must be an object.")
+    return payload, None
+
+
+def _require_nonempty_string(payload: dict, key: str, label: str, max_len: int = 2000):
+    value = payload.get(key)
+    if not isinstance(value, str):
+        return None, _json_error(f"{label} must be a string.")
+    value = value.strip()
+    if not value:
+        return None, _json_error(f"{label} is required.")
+    if len(value) > max_len:
+        return None, _json_error(f"{label} is too long (max {max_len} characters).")
+    return value, None
+
+
+def _optional_string(payload: dict, key: str, label: str, max_len: int = 4000):
+    value = payload.get(key)
+    if value is None:
+        return "", None
+    if not isinstance(value, str):
+        return None, _json_error(f"{label} must be a string.")
+    if len(value) > max_len:
+        return None, _json_error(f"{label} is too long (max {max_len} characters).")
+    return value.strip(), None
+
 
 @app.get("/")
 def root():
@@ -97,11 +135,15 @@ def login():
       401:
         description: Invalid credentials.
     """
-    payload = request.get_json(silent=True) or {}
-    username = (payload.get("username") or "").strip()
-    password = (payload.get("password") or "").strip()
-    if not username or not password:
-        return jsonify({"error": "Username and password are required"}), 400
+    payload, error = _parse_json_payload()
+    if error:
+        return error
+    username, error = _require_nonempty_string(payload, "username", "Username", max_len=120)
+    if error:
+        return error
+    password, error = _require_nonempty_string(payload, "password", "Password", max_len=256)
+    if error:
+        return error
     result = assistant.login(username, password)
     if not result:
         return jsonify({"error": "Invalid credentials"}), 401
@@ -262,19 +304,33 @@ def query_assistant(current_user):
       400:
         description: Missing query.
     """
-    payload = request.get_json(silent=True) or {}
-    query = (payload.get("query") or "").strip()
-    if not query:
-        return jsonify({"error": "Query is required"}), 400
+    payload, error = _parse_json_payload()
+    if error:
+        return error
 
-    language = payload.get("language") or "auto"
-    include_voice = bool(payload.get("include_voice"))
+    query, error = _require_nonempty_string(payload, "query", "Query", max_len=2000)
+    if error:
+        return error
+
+    language_raw = payload.get("language", "auto")
+    if not isinstance(language_raw, str):
+        return _json_error("Language must be a string.")
+    language = language_raw.strip() or "auto"
+    if language.lower() not in ALLOWED_QUERY_LANGUAGES:
+        return _json_error("Language must be one of: auto, English, Hindi, en, hi, en-IN, hi-IN.")
+
+    include_voice_raw = payload.get("include_voice", False)
+    if not isinstance(include_voice_raw, bool):
+        return _json_error("include_voice must be a boolean.")
+    include_voice = include_voice_raw
     response = assistant.answer_query(
         user=current_user,
         query=query,
         preferred_language=language,
         include_voice=include_voice,
     )
+    if not isinstance(response, dict) or not isinstance(response.get("summary"), str):
+        return _json_error("Assistant returned an invalid response shape.", status=502)
     return jsonify(response)
 
 
@@ -319,7 +375,43 @@ def submit_feedback(current_user):
       400:
         description: Invalid feedback payload.
     """
-    payload = request.get_json(silent=True) or {}
+    payload, error = _parse_json_payload()
+    if error:
+        return error
+
+    query, error = _require_nonempty_string(payload, "query", "Query", max_len=2000)
+    if error:
+        return error
+    payload["query"] = query
+
+    rating = payload.get("rating")
+    if not isinstance(rating, int):
+        return _json_error("Rating must be an integer with value 1 or -1.")
+    if rating not in (-1, 1):
+        return _json_error("Rating must be 1 or -1.")
+
+    query_log_id = payload.get("queryLogId")
+    if query_log_id is not None and not isinstance(query_log_id, int):
+        return _json_error("queryLogId must be an integer.")
+
+    top_document, error = _optional_string(payload, "topDocument", "topDocument")
+    if error:
+        return error
+    top_document_id, error = _optional_string(payload, "topDocumentId", "topDocumentId")
+    if error:
+        return error
+    comment, error = _optional_string(payload, "comment", "comment", max_len=6000)
+    if error:
+        return error
+    correction, error = _optional_string(payload, "correction", "correction", max_len=6000)
+    if error:
+        return error
+
+    payload["topDocument"] = top_document
+    payload["topDocumentId"] = top_document_id
+    payload["comment"] = comment
+    payload["correction"] = correction
+
     result = assistant.submit_feedback(current_user, payload)
     if "error" in result:
         return jsonify(result), 400

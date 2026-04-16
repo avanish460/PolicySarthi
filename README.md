@@ -90,6 +90,12 @@ The UI behavior:
 - displays only final response text
 - hides any `<think>` metadata if returned by model/backend
 
+## 8. Run Backend Tests
+
+```powershell
+.\.venv\Scripts\python -m unittest discover -s tests -p "test_*.py" -v
+```
+
 ## API Connection Flow (Frontend -> Backend)
 
 1. Frontend calls `POST /api/auth/login` to get bearer token.
