@@ -1,5 +1,6 @@
 import base64
 from pathlib import Path
+import httpx
 
 
 class SarvamService:
@@ -12,7 +13,12 @@ class SarvamService:
             try:
                 from sarvamai import SarvamAI
 
-                self.client = SarvamAI(api_subscription_key=settings.sarvam_api_key)
+                # Bypass process-level proxy env vars (HTTP_PROXY/HTTPS_PROXY) so Sarvam calls
+                # are not redirected to local dead proxies in constrained dev setups.
+                self.client = SarvamAI(
+                    api_subscription_key=settings.sarvam_api_key,
+                    httpx_client=httpx.Client(timeout=60, follow_redirects=True, trust_env=False),
+                )
             except Exception:
                 self.enabled = False
                 self.client = None
@@ -84,11 +90,21 @@ class SarvamService:
                 text=text,
                 target_language_code=target_language,
             )
-            audio_bytes = getattr(response, "audio", None) or getattr(response, "audio_bytes", None)
-            if not audio_bytes:
+            # Current SDK returns `audios` as a list of base64-encoded strings.
+            audios = getattr(response, "audios", None)
+            if isinstance(audios, list) and audios:
+                first_audio = audios[0]
+                if isinstance(first_audio, str) and first_audio.strip():
+                    return first_audio.strip()
+                if isinstance(first_audio, bytes):
+                    return base64.b64encode(first_audio).decode("utf-8")
+
+            # Backward compatibility for older payload shapes.
+            audio_payload = getattr(response, "audio", None) or getattr(response, "audio_bytes", None)
+            if not audio_payload:
                 return None
-            if isinstance(audio_bytes, str):
-                return audio_bytes
-            return base64.b64encode(audio_bytes).decode("utf-8")
+            if isinstance(audio_payload, str):
+                return audio_payload
+            return base64.b64encode(audio_payload).decode("utf-8")
         except Exception:
             return None

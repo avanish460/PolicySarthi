@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 try:
     from dotenv import load_dotenv
@@ -7,6 +8,9 @@ except ImportError:
     load_dotenv = None
 
 if load_dotenv:
+    backend_env = Path(__file__).resolve().parent / ".env"
+    if backend_env.exists():
+        load_dotenv(dotenv_path=backend_env)
     load_dotenv()
 
 

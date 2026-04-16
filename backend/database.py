@@ -11,7 +11,7 @@ SEED_USERS = [
         "id": "USR-001",
         "username": "admin",
         "password": "admin123",
-        "display_name": "Aditi Sharma",
+        "display_name": "Avanish Dubey",
         "role": "admin",
         "department": "Administration",
     },
@@ -22,22 +22,6 @@ SEED_USERS = [
         "display_name": "Rahul Verma",
         "role": "staff",
         "department": "Insurance Desk",
-    },
-    {
-        "id": "USR-003",
-        "username": "auditor",
-        "password": "audit123",
-        "display_name": "Neha Iyer",
-        "role": "auditor",
-        "department": "Compliance",
-    },
-    {
-        "id": "USR-004",
-        "username": "user",
-        "password": "user123",
-        "display_name": "General User",
-        "role": "user",
-        "department": "General",
     },
 ]
 

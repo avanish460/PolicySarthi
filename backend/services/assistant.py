@@ -1,4 +1,3 @@
-import base64
 import csv
 import difflib
 import json
@@ -227,6 +226,7 @@ class HospitalAssistantService:
             ranked = self._filter_grounded_sources(retrieval_query, ranked)
         top = ranked[0] if ranked else None
         missing_warnings = answer.get("warnings", [])
+        answer["summary"] = self._clean_summary_text(answer.get("summary", ""))
         voice = self.speak_text(answer["summary"], target_language_code) if include_voice else None
         confidence = self._build_confidence_signal(retrieval_query, ranked, answer.get("no_info", False))
 
@@ -252,6 +252,13 @@ class HospitalAssistantService:
             "voicePlayback": voice,
             "confidence": confidence,
         }
+
+    def _clean_summary_text(self, text: str):
+        cleaned = (text or "").strip()
+        cleaned = re.sub(r"<think\b[^>]*>.*?</think>", "", cleaned, flags=re.IGNORECASE | re.DOTALL)
+        cleaned = re.sub(r"</?think\b[^>]*>", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        return cleaned
 
     def compare_documents(self, left_id: str, right_id: str):
         left = self.get_document(left_id)
@@ -377,8 +384,7 @@ class HospitalAssistantService:
         if encoded:
             return {"audioBase64": encoded, "mode": "sarvam", "language": language}
 
-        fake_audio = base64.b64encode(f"Demo audio for: {text[:80]}".encode("utf-8")).decode("utf-8")
-        return {"audioBase64": fake_audio, "mode": "fallback", "language": language}
+        return {"audioBase64": "", "mode": "not_available", "language": language}
 
     def _retrieve(self, query: str, top_k: int, user: dict | None = None):
         tokens = self._expand_tokens(query)
@@ -1130,7 +1136,9 @@ class HospitalAssistantService:
             "pa-in": "Punjabi",
             "punjabi": "Punjabi",
             "or": "Odia",
+            "od": "Odia",
             "or-in": "Odia",
+            "od-in": "Odia",
             "odia": "Odia",
             "oriya": "Odia",
         }
@@ -1148,7 +1156,7 @@ class HospitalAssistantService:
             "Gujarati": "gu-IN",
             "Bengali": "bn-IN",
             "Punjabi": "pa-IN",
-            "Odia": "or-IN",
+            "Odia": "od-IN",
         }
         return mapping.get(detected_language, "en-IN")
 

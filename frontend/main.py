@@ -4,10 +4,12 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+import hashlib
 
 import base64
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 DEFAULT_BACKEND_URL = "http://localhost:5000"
@@ -25,6 +27,12 @@ def init_state() -> None:
         st.session_state.token = ""
     if "current_user" not in st.session_state:
         st.session_state.current_user = {}
+    if "spoken_tts_message_ids" not in st.session_state:
+        st.session_state.spoken_tts_message_ids = set()
+    if "played_audio_message_ids" not in st.session_state:
+        st.session_state.played_audio_message_ids = set()
+    if "last_auto_voice_fingerprint" not in st.session_state:
+        st.session_state.last_auto_voice_fingerprint = ""
 
 
 def ensure_feedback_state() -> None:
@@ -162,12 +170,13 @@ def ask_backend(
     base_url: str,
     token: str,
     prompt: str,
+    language: str = "auto",
     include_voice: bool = False,
 ) -> tuple[dict | None, str | None]:
     data, err = api_request(
         "POST",
         f"{base_url.rstrip('/')}/api/query",
-        {"query": prompt, "language": "auto", "include_voice": include_voice},
+        {"query": prompt, "language": language, "include_voice": include_voice},
         token=token,
     )
     if err:
@@ -182,7 +191,9 @@ def get_health(base_url: str) -> tuple[dict | None, str | None]:
     return api_request("GET", f"{base_url.rstrip('/')}/api/health")
 
 
-def transcribe_voice(base_url: str, token: str, audio_file) -> tuple[str | None, str | None]:
+def transcribe_voice(
+    base_url: str, token: str, audio_file
+) -> tuple[str | None, str | None, str | None]:
     file_name = getattr(audio_file, "name", "") or "voice.wav"
     file_content_type = getattr(audio_file, "type", "") or "audio/wav"
     file_bytes = audio_file.getvalue()
@@ -196,11 +207,43 @@ def transcribe_voice(base_url: str, token: str, audio_file) -> tuple[str | None,
         file_content_type=file_content_type,
     )
     if err:
-        return None, err
+        return None, None, err
     transcript = ((data or {}).get("transcript") or "").strip()
+    language_code = ((data or {}).get("languageCode") or "auto").strip()
     if not transcript:
-        return None, "No transcript returned from voice API."
-    return transcript, None
+        return None, None, "No transcript returned from voice API."
+    return transcript, language_code, None
+
+
+def normalize_query_language(language_code: str | None) -> str:
+    normalized = (language_code or "").strip().lower()
+    language_map = {
+        "en": "en-IN",
+        "en-in": "en-IN",
+        "hi": "hi-IN",
+        "hi-in": "hi-IN",
+        "ta": "ta-IN",
+        "ta-in": "ta-IN",
+        "te": "te-IN",
+        "te-in": "te-IN",
+        "kn": "kn-IN",
+        "kn-in": "kn-IN",
+        "ml": "ml-IN",
+        "ml-in": "ml-IN",
+        "mr": "mr-IN",
+        "mr-in": "mr-IN",
+        "gu": "gu-IN",
+        "gu-in": "gu-IN",
+        "bn": "bn-IN",
+        "bn-in": "bn-IN",
+        "pa": "pa-IN",
+        "pa-in": "pa-IN",
+        "od": "od-IN",
+        "od-in": "od-IN",
+        "or": "od-IN",
+        "or-in": "od-IN",
+    }
+    return language_map.get(normalized, "auto")
 
 
 def upload_policy_document(
@@ -288,6 +331,170 @@ def extract_voice_bytes(data: dict | None) -> bytes | None:
         return base64.b64decode(encoded_audio)
     except Exception:
         return None
+
+
+def infer_output_language_code(data: dict | None) -> str:
+    voice_payload = (data or {}).get("voicePlayback") or {}
+    voice_lang = (voice_payload.get("language") or "").strip()
+    if voice_lang:
+        return voice_lang
+    detected = ((data or {}).get("detectedLanguage") or "").strip().lower()
+    language_map = {
+        "hindi": "hi-IN",
+        "tamil": "ta-IN",
+        "telugu": "te-IN",
+        "kannada": "kn-IN",
+        "malayalam": "ml-IN",
+        "marathi": "mr-IN",
+        "gujarati": "gu-IN",
+        "bengali": "bn-IN",
+        "punjabi": "pa-IN",
+        "odia": "od-IN",
+        "english": "en-IN",
+    }
+    return language_map.get(detected, "en-IN")
+
+
+def render_audio_player(audio_bytes: bytes, player_id: str, autoplay: bool = False) -> None:
+    if not audio_bytes:
+        return
+    encoded_audio = base64.b64encode(audio_bytes).decode("ascii")
+    components.html(
+        f"""
+        <div style="display:flex; align-items:center; gap:8px; margin: 0.2rem 0 0.25rem 0;">
+          <button
+            id="ps-audio-btn-{player_id}"
+            title="Play/Pause"
+            style="
+              width:40px;
+              height:40px;
+              border-radius:999px;
+              border:1px solid rgba(255,255,255,0.25);
+              background:#0f7cc9;
+              color:#ffffff;
+              font-size:16px;
+              line-height:1;
+              cursor:pointer;
+              display:flex;
+              align-items:center;
+              justify-content:center;
+            "
+          >
+            ▶
+          </button>
+        </div>
+        <audio id="{player_id}" preload="auto" style="display:none;">
+          <source src="data:audio/wav;base64,{encoded_audio}" type="audio/wav" />
+        </audio>
+        <script>
+        (function() {{
+          const audio = document.getElementById("{player_id}");
+          const btn = document.getElementById("ps-audio-btn-{player_id}");
+          if (!audio) return;
+          if (!btn) return;
+
+          function setIcon() {{
+            btn.textContent = audio.paused ? "▶" : "❚❚";
+          }}
+
+          btn.onclick = function () {{
+            if (audio.paused) {{
+              audio.play().catch(() => {{}});
+            }} else {{
+              audio.pause();
+            }}
+          }};
+
+          audio.addEventListener("play", setIcon);
+          audio.addEventListener("pause", setIcon);
+          audio.addEventListener("ended", setIcon);
+
+          setIcon();
+          {"audio.play().then(setIcon).catch(() => {});" if autoplay else ""}
+        }})();
+        </script>
+        """,
+        height=52,
+    )
+
+
+def render_browser_tts_controls(
+    message_id: str, text: str, language_code: str, autoplay: bool = False
+) -> None:
+    if not message_id or not (text or "").strip():
+        return
+
+    spoken_ids = st.session_state.spoken_tts_message_ids
+    should_autoplay = autoplay and (message_id not in spoken_ids)
+    if should_autoplay:
+        spoken_ids.add(message_id)
+
+    payload = json.dumps(
+        {
+            "messageId": message_id,
+            "text": text,
+            "languageCode": language_code or "en-IN",
+            "autoplay": should_autoplay,
+        }
+    )
+    components.html(
+        f"""
+        <div style="display:flex; gap:8px; align-items:center; margin: 0.15rem 0 0.25rem 0;">
+          <button id="ps-play-{message_id}" style="padding: 0.25rem 0.55rem;">Play</button>
+          <button id="ps-pause-{message_id}" style="padding: 0.25rem 0.55rem;">Pause</button>
+          <span style="font-size: 0.8rem; opacity: 0.75;">Voice controls</span>
+        </div>
+        <script>
+        (function() {{
+          const payload = {payload};
+          const id = payload.messageId;
+          const text = (payload.text || "").trim();
+          const lang = payload.languageCode || "en-IN";
+          if (!text) return;
+
+          const playButton = document.getElementById(`ps-play-${{id}}`);
+          const pauseButton = document.getElementById(`ps-pause-${{id}}`);
+
+          function speakFromStart() {{
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = lang;
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            window.__policySarthiUtterance = utterance;
+            window.__policySarthiUtteranceId = id;
+            window.speechSynthesis.speak(utterance);
+          }}
+
+          if (playButton) {{
+            playButton.onclick = function () {{
+              if (window.speechSynthesis.paused) {{
+                window.speechSynthesis.resume();
+                return;
+              }}
+              if (window.speechSynthesis.speaking && window.__policySarthiUtteranceId === id) {{
+                return;
+              }}
+              speakFromStart();
+            }};
+          }}
+
+          if (pauseButton) {{
+            pauseButton.onclick = function () {{
+              if (window.speechSynthesis.speaking) {{
+                window.speechSynthesis.pause();
+              }}
+            }};
+          }}
+
+          if (payload.autoplay) {{
+            speakFromStart();
+          }}
+        }})();
+        </script>
+        """,
+        height=48,
+    )
 
 
 def stream_text(text: str):
@@ -470,7 +677,18 @@ for idx, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if msg.get("audio_bytes"):
-            st.audio(msg["audio_bytes"])
+            autoplay_audio = False
+            message_id = (msg.get("message_id") or "").strip()
+            if msg.get("autoplay_audio") and message_id:
+                played_ids = st.session_state.played_audio_message_ids
+                if message_id not in played_ids:
+                    autoplay_audio = True
+                    played_ids.add(message_id)
+            render_audio_player(
+                msg["audio_bytes"],
+                player_id=f"history-audio-{idx}",
+                autoplay=autoplay_audio,
+            )
         if msg["role"] == "assistant" and msg.get("feedback_enabled"):
             feedback_state = msg.get("feedback_state", "")
             if feedback_state == "up":
@@ -578,6 +796,7 @@ for idx, msg in enumerate(st.session_state.messages):
 
 pending_prompt = None
 pending_prompt_source = "text"
+pending_prompt_language = "auto"
 submitted = False
 typed_prompt = ""
 voice_audio = None
@@ -589,7 +808,7 @@ st.markdown(
             <div class="voice-input-icon">🎙</div>
             <div>
                 <div class="voice-input-title">Voice Input</div>
-                <div class="voice-input-subtitle">Record your question, then click Send to transcribe with Sarvam STT.</div>
+                <div class="voice-input-subtitle">Record your question to auto-transcribe with Sarvam STT and auto-send.</div>
             </div>
         </div>
     </div>
@@ -614,6 +833,8 @@ if submitted:
     if typed_prompt:
         pending_prompt = typed_prompt
         pending_prompt_source = "text"
+        pending_prompt_language = "auto"
+        st.session_state.last_auto_voice_fingerprint = ""
     elif voice_audio is not None:
         with st.chat_message("assistant"):
             thinking_placeholder = st.empty()
@@ -627,15 +848,48 @@ if submitted:
                     st.session_state.token = token
 
             if st.session_state.token:
-                transcript, err = transcribe_voice(backend_url, st.session_state.token, voice_audio)
+                transcript, detected_language_code, err = transcribe_voice(
+                    backend_url, st.session_state.token, voice_audio
+                )
                 thinking_placeholder.empty()
                 if err:
                     st.error(f"Voice error: {err}")
                 else:
                     pending_prompt = transcript
                     pending_prompt_source = "voice"
+                    pending_prompt_language = normalize_query_language(detected_language_code)
+                    voice_bytes = voice_audio.getvalue()
+                    st.session_state.last_auto_voice_fingerprint = hashlib.sha1(voice_bytes).hexdigest()
     else:
         st.warning("Type a message or record voice in the Voice Input panel.")
+elif voice_audio is not None and not (typed_prompt or "").strip():
+    voice_bytes = voice_audio.getvalue()
+    voice_fingerprint = hashlib.sha1(voice_bytes).hexdigest()
+    if voice_fingerprint != st.session_state.last_auto_voice_fingerprint:
+        with st.chat_message("assistant"):
+            thinking_placeholder = st.empty()
+            thinking_placeholder.markdown("Thinking.......")
+            if not st.session_state.token:
+                token, err = login(backend_url, username, password)
+                if err:
+                    thinking_placeholder.empty()
+                    st.error(f"Login failed: {err}")
+                else:
+                    st.session_state.token = token
+
+            if st.session_state.token:
+                transcript, detected_language_code, err = transcribe_voice(
+                    backend_url, st.session_state.token, voice_audio
+                )
+                thinking_placeholder.empty()
+                if err:
+                    st.error(f"Voice error: {err}")
+                    st.session_state.last_auto_voice_fingerprint = voice_fingerprint
+                else:
+                    pending_prompt = transcript
+                    pending_prompt_source = "voice"
+                    pending_prompt_language = normalize_query_language(detected_language_code)
+                    st.session_state.last_auto_voice_fingerprint = voice_fingerprint
 
 if pending_prompt:
     st.session_state.messages.append({"role": "user", "content": pending_prompt})
@@ -660,6 +914,7 @@ if pending_prompt:
                 backend_url,
                 st.session_state.token,
                 pending_prompt,
+                language=pending_prompt_language,
                 include_voice=(pending_prompt_source == "voice"),
             )
             if err:
@@ -670,14 +925,18 @@ if pending_prompt:
 
         thinking_placeholder.empty()
         st.write_stream(stream_text(final_text))
-        if final_audio_bytes:
-            st.audio(final_audio_bytes)
+        if pending_prompt_source == "voice" and not final_audio_bytes:
+            st.caption("Voice playback unavailable from Sarvam for this response.")
+
+    assistant_message_id = uuid.uuid4().hex
 
     st.session_state.messages.append(
         {
+            "message_id": assistant_message_id,
             "role": "assistant",
             "content": final_text,
             "audio_bytes": final_audio_bytes,
+            "autoplay_audio": bool(final_audio_bytes and pending_prompt_source == "voice"),
             "feedback_enabled": bool(response_data and response_data.get("query")),
             "feedback_state": "",
             "feedback_query": (response_data or {}).get("query", pending_prompt),

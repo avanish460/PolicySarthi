@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from flask import Flask, jsonify, redirect, request
@@ -42,7 +43,42 @@ state = initialize_database(BASE_DIR)
 seed_auth_state(state["users"])
 assistant = HospitalAssistantService(state, settings)
 
-ALLOWED_QUERY_LANGUAGES = {"auto", "english", "hindi", "en", "hi", "en-in", "hi-in"}
+ALLOWED_QUERY_LANGUAGES = {
+    "auto",
+    "english",
+    "hindi",
+    "tamil",
+    "telugu",
+    "kannada",
+    "malayalam",
+    "marathi",
+    "gujarati",
+    "bengali",
+    "punjabi",
+    "odia",
+    "en",
+    "hi",
+    "ta",
+    "te",
+    "kn",
+    "ml",
+    "mr",
+    "gu",
+    "bn",
+    "pa",
+    "od",
+    "en-in",
+    "hi-in",
+    "ta-in",
+    "te-in",
+    "kn-in",
+    "ml-in",
+    "mr-in",
+    "gu-in",
+    "bn-in",
+    "pa-in",
+    "od-in",
+}
 ALLOWED_SENSITIVITY_LABELS = {"public", "internal", "confidential", "restricted"}
 
 
@@ -318,7 +354,9 @@ def query_assistant(current_user):
         return _json_error("Language must be a string.")
     language = language_raw.strip() or "auto"
     if language.lower() not in ALLOWED_QUERY_LANGUAGES:
-        return _json_error("Language must be one of: auto, English, Hindi, en, hi, en-IN, hi-IN.")
+        return _json_error(
+            "Unsupported language. Use auto or a supported code like en-IN, hi-IN, ta-IN, te-IN, kn-IN, ml-IN, mr-IN, gu-IN, bn-IN, pa-IN, od-IN."
+        )
 
     include_voice_raw = payload.get("include_voice", False)
     if not isinstance(include_voice_raw, bool):
@@ -622,4 +660,5 @@ def speak(current_user):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    debug_mode = os.getenv("FLASK_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}
+    app.run(debug=debug_mode, host="0.0.0.0", port=5000, use_reloader=False)
