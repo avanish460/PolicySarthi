@@ -43,6 +43,7 @@ seed_auth_state(state["users"])
 assistant = HospitalAssistantService(state, settings)
 
 ALLOWED_QUERY_LANGUAGES = {"auto", "english", "hindi", "en", "hi", "en-in", "hi-in"}
+ALLOWED_SENSITIVITY_LABELS = {"public", "internal", "confidential", "restricted"}
 
 
 def _json_error(message: str, status: int = 400):
@@ -459,6 +460,10 @@ def upload_document(current_user):
       - in: formData
         name: summary
         type: string
+      - in: formData
+        name: sensitivity_label
+        type: string
+        enum: [public, internal, confidential, restricted]
     responses:
       201:
         description: Document uploaded and indexed.
@@ -467,6 +472,13 @@ def upload_document(current_user):
         return jsonify({"error": "Upload requires a file field"}), 400
 
     upload = request.files["file"]
+    sensitivity_label = (request.form.get("sensitivity_label") or "internal").strip().lower()
+    if sensitivity_label not in ALLOWED_SENSITIVITY_LABELS:
+        return jsonify(
+            {
+                "error": "sensitivity_label must be one of: public, internal, confidential, restricted"
+            }
+        ), 400
     metadata = {
         "title": request.form.get("title") or upload.filename,
         "document_type": request.form.get("document_type") or "Policy",
@@ -476,6 +488,7 @@ def upload_document(current_user):
         "language": request.form.get("language") or "en-IN",
         "version": request.form.get("version") or "v1",
         "summary": request.form.get("summary") or "",
+        "sensitivity_label": sensitivity_label,
     }
     result = assistant.ingest_document(current_user, upload, metadata)
     return jsonify(result), 201

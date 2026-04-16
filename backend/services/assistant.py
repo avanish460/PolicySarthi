@@ -45,6 +45,12 @@ class HospitalAssistantService:
             "discharge requirements, and approval steps for hospital operations."
         )
         self.default_access_roles = "admin,staff,auditor,user"
+        self.sensitivity_access_map = {
+            "public": "admin,staff,auditor,user",
+            "internal": "admin,staff,auditor",
+            "confidential": "admin,staff",
+            "restricted": "admin",
+        }
         self._reindex_existing_uploads()
         self._backfill_document_access()
         self._backfill_structured_records()
@@ -102,7 +108,8 @@ class HospitalAssistantService:
             rows = connection.execute(
                 """
                 SELECT id, title, document_type, category, department, insurance_scheme,
-                       effective_date, language, version, summary, last_updated, file_name, access_roles
+                       effective_date, language, version, summary, last_updated, file_name,
+                       sensitivity_label, access_roles
                 FROM documents
                 ORDER BY last_updated DESC, title ASC
                 """
@@ -148,7 +155,8 @@ class HospitalAssistantService:
         extracted_text = self._extract_text(target_path, metadata)
         summary = metadata["summary"] or self._summarize_content(extracted_text, metadata)
         now = now_iso()
-        access_roles = self._determine_access_roles(metadata, extracted_text)
+        sensitivity_label = self._determine_sensitivity_label(metadata, extracted_text)
+        access_roles = self._access_roles_for_sensitivity(sensitivity_label)
 
         with self._connect() as connection:
             connection.execute(
@@ -156,9 +164,9 @@ class HospitalAssistantService:
                 INSERT INTO documents (
                     id, title, document_type, category, department, insurance_scheme,
                     effective_date, language, version, summary, content, file_name,
-                    file_path, last_updated, uploaded_by, access_roles
+                    file_path, last_updated, uploaded_by, sensitivity_label, access_roles
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     document_id,
@@ -176,6 +184,7 @@ class HospitalAssistantService:
                     str(target_path),
                     now[:10],
                     user["id"],
+                    sensitivity_label,
                     access_roles,
                 ),
             )
@@ -191,6 +200,7 @@ class HospitalAssistantService:
             "documentId": document_id,
             "message": "Document uploaded, processed, and indexed successfully.",
             "metadata": metadata,
+            "sensitivityLabel": sensitivity_label,
             "accessRoles": access_roles.split(","),
             "extractedPreview": extracted_text[:320],
             "structuredRowsIndexed": structured_rows_indexed,
@@ -209,6 +219,8 @@ class HospitalAssistantService:
         if "compare" in retrieval_query.lower():
             ranked = self._select_comparison_documents(retrieval_query, ranked)[:2]
         answer = self._generate_answer(user, retrieval_query, ranked, detected_language)
+        if answer.get("no_info") and self._has_access_blocked_match(retrieval_query, user):
+            answer = self._access_denied_response(detected_language)
         if answer.get("no_info"):
             ranked = []
         else:
@@ -939,20 +951,21 @@ class HospitalAssistantService:
                 dict(row)
                 for row in connection.execute(
                     """
-                    SELECT id, title, summary, content, document_type, department, insurance_scheme, access_roles
+                    SELECT id, title, summary, content, document_type, department, insurance_scheme,
+                           sensitivity_label, access_roles
                     FROM documents
                     """
                 ).fetchall()
             ]
             for row in rows:
                 access_roles = (row.get("access_roles") or "").strip()
-                if access_roles and access_roles != self.default_access_roles:
-                    continue
-                inferred = self._determine_access_roles(row, row.get("content", ""))
-                if inferred != access_roles:
+                sensitivity_label = self._normalize_sensitivity_label(row.get("sensitivity_label"))
+                inferred_sensitivity = self._determine_sensitivity_label(row, row.get("content", ""))
+                inferred_access = self._access_roles_for_sensitivity(inferred_sensitivity)
+                if (inferred_access != access_roles) or (inferred_sensitivity != sensitivity_label):
                     connection.execute(
-                        "UPDATE documents SET access_roles = ? WHERE id = ?",
-                        (inferred, row["id"]),
+                        "UPDATE documents SET sensitivity_label = ?, access_roles = ? WHERE id = ?",
+                        (inferred_sensitivity, inferred_access, row["id"]),
                     )
             connection.commit()
 
@@ -984,7 +997,20 @@ class HospitalAssistantService:
         normalized = " ".join((content or "").split())
         return self.placeholder_phrase in normalized
 
-    def _determine_access_roles(self, metadata: dict, content: str):
+    def _normalize_sensitivity_label(self, label: str | None):
+        normalized = (label or "").strip().lower()
+        if normalized in self.sensitivity_access_map:
+            return normalized
+        return "public"
+
+    def _access_roles_for_sensitivity(self, sensitivity_label: str):
+        normalized = self._normalize_sensitivity_label(sensitivity_label)
+        return self.sensitivity_access_map.get(normalized, self.default_access_roles)
+
+    def _determine_sensitivity_label(self, metadata: dict, content: str):
+        explicit = self._normalize_sensitivity_label(metadata.get("sensitivity_label"))
+        if metadata.get("sensitivity_label"):
+            return explicit
         combined = " ".join(
             [
                 metadata.get("title", ""),
@@ -995,15 +1021,21 @@ class HospitalAssistantService:
         ).lower()
         restricted_terms = ["salary", "payroll", "compensation", "ctc", "take home", "doctor salary"]
         if any(term in combined for term in restricted_terms):
-            return "admin,staff,auditor"
-        return self.default_access_roles
+            return "confidential"
+        return "public"
+
+    def _determine_access_roles(self, metadata: dict, content: str):
+        sensitivity_label = self._determine_sensitivity_label(metadata, content)
+        return self._access_roles_for_sensitivity(sensitivity_label)
 
     def _has_document_access(self, user: dict | None, document: dict):
         if not user:
             return False
+        sensitivity_label = self._normalize_sensitivity_label(document.get("sensitivity_label"))
+        fallback_roles = self._access_roles_for_sensitivity(sensitivity_label)
         access_roles = {
             role.strip()
-            for role in (document.get("access_roles") or self.default_access_roles).split(",")
+            for role in (document.get("access_roles") or fallback_roles).split(",")
             if role.strip()
         }
         return user.get("role") in access_roles
@@ -1242,6 +1274,48 @@ class HospitalAssistantService:
             "level": "semantic",
             "label": "Semantic Match",
             "description": "The answer is grounded in relevant retrieved content, but not an exact section match.",
+        }
+
+    def _has_access_blocked_match(self, query: str, user: dict | None):
+        if not user or not query.strip():
+            return False
+        tokens = self._expand_tokens(query)
+        normalized_query = " ".join(query.lower().split())
+        top_score = 0
+        with self._connect() as connection:
+            documents = [dict(row) for row in connection.execute("SELECT * FROM documents").fetchall()]
+        for document in documents:
+            if self._has_document_access(user, document):
+                continue
+            haystack = " ".join(
+                [
+                    document.get("title", ""),
+                    document.get("summary", ""),
+                    document.get("content", ""),
+                    document.get("document_type", ""),
+                    document.get("insurance_scheme", ""),
+                ]
+            ).lower()
+            score = sum(3 if token in (document.get("title", "").lower()) else 1 for token in tokens if token in haystack)
+            if normalized_query and normalized_query in " ".join(haystack.split()):
+                score += 8
+            if score > top_score:
+                top_score = score
+        return top_score >= 4
+
+    def _access_denied_response(self, detected_language: str):
+        summary = (
+            "I found potentially relevant information, but your role is not authorized to access this "
+            "sensitivity level. Please contact an admin for access."
+        )
+        if detected_language != "English":
+            summary = self._translate_output_text(summary, detected_language)
+        return {
+            "summary": summary,
+            "steps": [],
+            "checklist": [],
+            "warnings": ["Access is restricted by document sensitivity guardrails."],
+            "no_info": True,
         }
 
     def _no_info_response(self, detected_language: str):

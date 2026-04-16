@@ -335,7 +335,42 @@ def build():
         ],
     )
 
-    # 9. Deployment
+    # 9. Guardrails
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    set_background(s, COLORS["white"])
+    add_title(s, "Guardrails: Sensitivity Labels + Access Fallback", "Explicit data control per role")
+    add_card(
+        s,
+        Inches(0.8),
+        Inches(1.7),
+        Inches(5.7),
+        Inches(2.8),
+        "Sensitivity Labels",
+        "public -> admin/staff/auditor/user\ninternal -> admin/staff/auditor\nconfidential -> admin/staff\nrestricted -> admin only\n\nAdmin selects label at upload time.",
+        COLORS["soft_blue"],
+    )
+    add_card(
+        s,
+        Inches(6.75),
+        Inches(1.7),
+        Inches(5.75),
+        Inches(2.8),
+        "Unauthorized Access Handling",
+        "If a query matches only restricted documents outside the user role, the assistant does NOT expose content.\n\nFallback response:\n'Information exists, but your role is not authorized for this sensitivity level. Please contact admin.'",
+        COLORS["soft_orange"],
+    )
+    add_bullets(
+        s,
+        [
+            "This avoids accidental leakage while keeping staff/admin productivity for permitted data.",
+            "Guardrail decision happens before final answer generation.",
+        ],
+        top=4.9,
+        height=1.1,
+        size=14,
+    )
+
+    # 10. Deployment
     s = prs.slides.add_slide(prs.slide_layouts[6])
     set_background(s, COLORS["white"])
     add_title(s, "Deployment Plan", "Where and how Policy Sarthi will run")
@@ -353,7 +388,7 @@ def build():
         size=14,
     )
 
-    # 10. Scale
+    # 11. Scale
     s = prs.slides.add_slide(prs.slide_layouts[6])
     set_background(s, COLORS["white"])
     add_title(s, "Scalability Roadmap", "How we scale from pilot to enterprise")
@@ -361,7 +396,7 @@ def build():
     add_card(s, Inches(4.95), Inches(1.7), Inches(3.9), Inches(3.6), "Phase 2", "Postgres + Redis caching\nVector DB (Milvus/Pinecone)\nAsync workers for ingestion\nMulti-hospital tenancy", COLORS["soft_green"])
     add_card(s, Inches(9.1), Inches(1.7), Inches(3.4), Inches(3.6), "Phase 3", "Horizontal autoscaling\nRegional failover\nModel routing + cost controls\nSLA/SLO observability", COLORS["soft_orange"])
 
-    # 11. KPIs
+    # 12. KPIs
     s = prs.slides.add_slide(prs.slide_layouts[6])
     set_background(s, COLORS["white"])
     add_title(s, "Success Metrics", "What we will measure post-deployment")
@@ -379,7 +414,7 @@ def build():
         size=14,
     )
 
-    # 12. Jury Q&A prep
+    # 13. Jury Q&A prep
     s = prs.slides.add_slide(prs.slide_layouts[6])
     set_background(s, COLORS["white"])
     add_title(s, "Jury Questions We Are Ready For", "Technical depth and product-readiness")
@@ -395,7 +430,7 @@ def build():
         size=16,
     )
 
-    # 13. Closing
+    # 14. Closing
     s = prs.slides.add_slide(prs.slide_layouts[6])
     set_background(s, COLORS["bg"])
     add_title(s, "Thank You", "Policy Sarthi AI: From static documents to real-time hospital intelligence")

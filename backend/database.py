@@ -89,6 +89,7 @@ def initialize_database(base_dir: Path):
             file_path TEXT NOT NULL,
             last_updated TEXT NOT NULL,
             uploaded_by TEXT NOT NULL,
+            sensitivity_label TEXT NOT NULL DEFAULT 'public',
             access_roles TEXT NOT NULL DEFAULT 'admin,staff,auditor,user'
         );
 
@@ -160,6 +161,10 @@ def initialize_database(base_dir: Path):
         cursor.execute(
             "ALTER TABLE documents ADD COLUMN access_roles TEXT NOT NULL DEFAULT 'admin,staff,auditor,user'"
         )
+    if "sensitivity_label" not in document_columns:
+        cursor.execute(
+            "ALTER TABLE documents ADD COLUMN sensitivity_label TEXT NOT NULL DEFAULT 'public'"
+        )
 
     seed_documents = json.loads((data_dir / "documents.json").read_text(encoding="utf-8"))
 
@@ -177,9 +182,9 @@ def initialize_database(base_dir: Path):
             INSERT OR REPLACE INTO documents (
                 id, title, document_type, category, department, insurance_scheme,
                 effective_date, language, version, summary, content, file_name,
-                file_path, last_updated, uploaded_by, access_roles
+                file_path, last_updated, uploaded_by, sensitivity_label, access_roles
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 document["id"],
@@ -197,6 +202,7 @@ def initialize_database(base_dir: Path):
                 str(storage_dir / f"{document['id']}.txt"),
                 document["last_updated"],
                 "USR-001",
+                document.get("sensitivity_label", "public"),
                 document.get("access_roles", "admin,staff,auditor,user"),
             ),
         )
@@ -216,9 +222,9 @@ def initialize_database(base_dir: Path):
                 INSERT OR REPLACE INTO documents (
                     id, title, document_type, category, department, insurance_scheme,
                     effective_date, language, version, summary, content, file_name,
-                    file_path, last_updated, uploaded_by, access_roles
+                    file_path, last_updated, uploaded_by, sensitivity_label, access_roles
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     document["id"],
@@ -236,6 +242,7 @@ def initialize_database(base_dir: Path):
                     str(storage_dir / f"{document['id']}.txt"),
                     document["last_updated"],
                     "USR-001",
+                    document.get("sensitivity_label", "public"),
                     document.get("access_roles", "admin,staff,auditor,user"),
                 ),
             )
@@ -261,9 +268,9 @@ def initialize_database(base_dir: Path):
                 INSERT OR REPLACE INTO documents (
                     id, title, document_type, category, department, insurance_scheme,
                     effective_date, language, version, summary, content, file_name,
-                    file_path, last_updated, uploaded_by, access_roles
+                    file_path, last_updated, uploaded_by, sensitivity_label, access_roles
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     document["id"],
@@ -281,6 +288,7 @@ def initialize_database(base_dir: Path):
                     str(data_file_path),
                     last_updated,
                     "USR-001",
+                    document.get("sensitivity_label", "public"),
                     document.get("access_roles", "admin,staff,auditor,user"),
                 ),
             )

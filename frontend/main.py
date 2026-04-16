@@ -215,6 +215,7 @@ def upload_policy_document(
     language: str,
     version: str,
     summary: str,
+    sensitivity_label: str,
 ) -> tuple[dict | None, str | None]:
     file_name = getattr(upload, "name", "") or "policy-upload.bin"
     file_content_type = getattr(upload, "type", "") or "application/octet-stream"
@@ -231,6 +232,7 @@ def upload_policy_document(
             "language": language,
             "version": version,
             "summary": summary,
+            "sensitivity_label": sensitivity_label,
         },
         file_field_name="file",
         file_name=file_name,
@@ -424,6 +426,12 @@ with st.sidebar:
                 with col_b:
                     upload_effective_date = st.text_input("Effective Date (YYYY-MM-DD)", value="")
                     upload_version = st.text_input("Version", value="v1")
+                upload_sensitivity = st.selectbox(
+                    "Sensitivity Label",
+                    options=["public", "internal", "confidential", "restricted"],
+                    index=1,
+                    help="Controls which roles can access this document data.",
+                )
                 upload_summary = st.text_area("Summary (optional)", value="", height=80)
                 upload_language = st.text_input(
                     "Document Language (Hindi / English / Any Native Language)",
@@ -447,6 +455,7 @@ with st.sidebar:
                         (upload_language or "").strip() or "auto",
                         (upload_version or "").strip() or "v1",
                         (upload_summary or "").strip(),
+                        (upload_sensitivity or "internal").strip().lower(),
                     )
                     if err:
                         st.error(f"Upload failed: {err}")
